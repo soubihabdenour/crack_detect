@@ -18,6 +18,10 @@ dataset/
     no_defect/
 ```
 
+If you only have a single directory with class subfolders (for example the Kaggle
+surface crack dataset), the tuning script below will automatically create a
+reproducible 70/15/15 train/val/test split for you.
+
 ## Setup
 Install dependencies (PyTorch and torchvision wheels should match your CUDA setup):
 
@@ -49,6 +53,23 @@ Useful flags:
 - `--no-balance`: disable weighted sampling if classes are already balanced
 - `--patience`: early stopping patience on validation loss
 - `--image-size`: resize/crop target (increase to 256–288 for more detail)
+
+## Hyperparameter search on a single-folder dataset
+Run Optuna sweeps that reuse a fixed random split across all trials. This is
+useful when starting from a dataset organized as `root/defect` and
+`root/no_defect` without predefined train/val folders:
+
+```
+python -m src.tune /path/to/full_dataset \
+  --trials 20 \
+  --epochs 15 \
+  --output-dir runs/tuning_kaggle
+```
+
+Artifacts per trial are written to `runs/tuning_kaggle/trial_XXX/` with the best
+model weights and validation/test metrics. The top-performing checkpoint and a
+summary JSON are copied into `runs/tuning_kaggle/best/` for quick reuse in
+`src.eval`.
 
 ## Evaluation
 Evaluate a trained model on any ImageFolder-formatted directory (validation or test split):

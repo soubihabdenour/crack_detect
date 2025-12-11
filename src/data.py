@@ -1,8 +1,8 @@
 import os
-from typing import Dict, Iterable, Tuple
+from typing import Dict, Iterable, Optional, Sequence, Tuple
 
 import torch
-from torch.utils.data import DataLoader, WeightedRandomSampler
+from torch.utils.data import DataLoader, Subset, WeightedRandomSampler
 from torchvision import datasets, transforms
 from torchvision.transforms import functional as F
 
@@ -81,6 +81,19 @@ def _make_sampler(dataset: datasets.ImageFolder) -> WeightedRandomSampler:
     return WeightedRandomSampler(sample_weights, num_samples=len(sample_weights), replacement=True)
 
 
+def _make_subset_sampler(dataset: datasets.ImageFolder, indices: Sequence[int]) -> WeightedRandomSampler:
+    """Sampler that balances a subset of an ImageFolder dataset."""
+
+    label_counts = torch.zeros(len(dataset.classes))
+    for idx in indices:
+        label_counts[dataset.targets[idx]] += 1
+
+    label_weights = 1.0 / torch.clamp(label_counts, min=1.0)
+    sample_weights = torch.tensor([label_weights[dataset.targets[idx]] for idx in indices])
+
+    return WeightedRandomSampler(sample_weights, num_samples=len(sample_weights), replacement=True)
+
+
 def build_loaders(
     data_root: str,
     batch_size: int = 32,
@@ -121,6 +134,90 @@ def build_loaders(
         pin_memory=True,
     )
     return train_loader, val_loader
+
+
+def _split_indices(total: int, train_frac: float, val_frac: float, seed: int = 42):
+    """Split ``total`` indices into train/val/test lists with a fixed seed."""
+
+    assert 0 < train_frac < 1 and 0 < val_frac < 1 and train_frac + val_frac < 1
+    generator = torch.Generator().manual_seed(seed)
+    perm = torch.randperm(total, generator=generator)
+
+    train_end = int(total * train_frac)
+    val_end = train_end + int(total * val_frac)
+
+    train_idx = perm[:train_end].tolist()
+    val_idx = perm[train_end:val_end].tolist()
+    test_idx = perm[val_end:].tolist()
+    return train_idx, val_idx, test_idx
+
+
+def build_random_split_loaders(
+    data_root: str,
+    batch_size: int = 32,
+    num_workers: int = 4,
+    image_size: int = 224,
+    augment: bool = True,
+    balance: bool = True,
+    train_frac: float = 0.7,
+    val_frac: float = 0.15,
+    seed: int = 42,
+    indices: Optional[Tuple[Sequence[int], Sequence[int], Sequence[int]]] = None,
+) -> Tuple[DataLoader, DataLoader, DataLoader]:
+    """Create loaders by randomly splitting a single ImageFolder directory.
+
+    Args:
+        data_root: Directory with class subfolders (no pre-made train/val split required).
+        batch_size: Batch size for all splits.
+        num_workers: Data loader workers.
+        image_size: Target resize/crop dimension.
+        augment: Whether to apply strong augmentations to the train split.
+        balance: Use weighted random sampling on the train split.
+        train_frac: Fraction of images used for training.
+        val_frac: Fraction of images used for validation (rest go to test).
+        seed: RNG seed for reproducible splits.
+    """
+
+    transforms_map = build_transforms(image_size=image_size, augment=augment)
+
+    train_dataset = datasets.ImageFolder(root=data_root, transform=transforms_map["train"])
+    eval_dataset = datasets.ImageFolder(root=data_root, transform=transforms_map["eval"])
+
+    if indices is None:
+        train_idx, val_idx, test_idx = _split_indices(len(train_dataset), train_frac, val_frac, seed=seed)
+    else:
+        train_idx, val_idx, test_idx = indices
+
+    train_subset = Subset(train_dataset, train_idx)
+    val_subset = Subset(eval_dataset, val_idx)
+    test_subset = Subset(eval_dataset, test_idx)
+
+    sampler = _make_subset_sampler(train_dataset, train_idx) if balance else None
+
+    train_loader = DataLoader(
+        train_subset,
+        batch_size=batch_size,
+        shuffle=sampler is None,
+        sampler=sampler,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+    val_loader = DataLoader(
+        val_subset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+    test_loader = DataLoader(
+        test_subset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    return train_loader, val_loader, test_loader
 
 
 def build_test_loader(
