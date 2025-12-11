@@ -64,5 +64,7 @@ The script prints JSON with loss and accuracy.
 
 ## Notes
 - Images are converted from grayscale to 3 channels to match pretrained models.
+- Portrait and landscape inputs are padded to square before resizing so validation
+  patches align with the training aspect ratio.
 - Augmentations (random resized crop, flips, mild jitter) are applied only during training.
 - See `REPORT.md` for the full training strategy, ideation, and tips for reaching the target accuracies.

@@ -1,10 +1,27 @@
-import math
 import os
 from typing import Dict, Iterable, Tuple
 
 import torch
 from torch.utils.data import DataLoader, WeightedRandomSampler
 from torchvision import datasets, transforms
+from torchvision.transforms import functional as F
+
+
+class SquarePad:
+    """Pad a PIL image to a square canvas before resizing.
+
+    This keeps aspect ratios intact for portrait and landscape inputs while
+    matching the model's expected square resolution after a subsequent resize.
+    """
+
+    def __call__(self, img):
+        width, height = img.size
+        max_dim = max(width, height)
+        pad_left = (max_dim - width) // 2
+        pad_top = (max_dim - height) // 2
+        pad_right = max_dim - width - pad_left
+        pad_bottom = max_dim - height - pad_top
+        return F.pad(img, (pad_left, pad_top, pad_right, pad_bottom), fill=0)
 
 
 def build_transforms(image_size: int = 224, augment: bool = True) -> Dict[str, transforms.Compose]:
@@ -19,6 +36,7 @@ def build_transforms(image_size: int = 224, augment: bool = True) -> Dict[str, t
 
     train_transforms: Iterable[transforms.Transform] = [
         transforms.Grayscale(num_output_channels=3),
+        SquarePad(),
         transforms.Resize((image_size + 32, image_size + 32)),
         transforms.RandomResizedCrop(image_size, scale=(0.8, 1.0), ratio=(0.9, 1.1)),
         transforms.RandomHorizontalFlip(p=0.5),
@@ -31,6 +49,7 @@ def build_transforms(image_size: int = 224, augment: bool = True) -> Dict[str, t
     eval_transforms = transforms.Compose(
         [
             transforms.Grayscale(num_output_channels=3),
+            SquarePad(),
             transforms.Resize((image_size, image_size)),
             transforms.ToTensor(),
             normalize,
@@ -40,6 +59,7 @@ def build_transforms(image_size: int = 224, augment: bool = True) -> Dict[str, t
     if not augment:
         train_transforms = [
             transforms.Grayscale(num_output_channels=3),
+            SquarePad(),
             transforms.Resize((image_size, image_size)),
             transforms.ToTensor(),
             normalize,
