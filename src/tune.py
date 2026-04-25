@@ -1,3 +1,10 @@
+"""Hyperparameter tuning with Optuna for crack detection.
+
+This script performs a study over backbone, image size, batch size, learning
+rate, weight decay, dropout, and early stopping patience. It uses a fixed
+random split across trials to ensure fair comparison.
+"""
+
 import argparse
 import json
 from pathlib import Path
@@ -18,6 +25,7 @@ from .train import accuracy_from_logits
 
 
 def train_epoch(model, loader, criterion, optimizer, device):
+    """Run one training epoch and return (avg_loss, avg_acc)."""
     model.train()
     total_loss = 0.0
     total_acc = 0.0
@@ -44,6 +52,7 @@ def train_epoch(model, loader, criterion, optimizer, device):
 
 
 def evaluate(model, loader, criterion, device):
+    """Evaluate model on a loader and return (avg_loss, avg_acc)."""
     model.eval()
     total_loss = 0.0
     total_acc = 0.0
@@ -76,13 +85,18 @@ def make_objective(
     balance: bool,
     num_workers: int,
 ):
+    """Create an Optuna objective function bound to the provided data/split.
+
+    Returns a callable that Optuna uses per-trial to train/validate a model and
+    report the negative validation accuracy as the objective value to minimize.
+    """
     def objective(trial: optuna.Trial) -> float:
         image_size = trial.suggest_categorical("image_size", [224, 256, 288])
         batch_size = trial.suggest_categorical("batch_size", [16, 32])
         lr = trial.suggest_float("lr", 1e-5, 1e-3, log=True)
         weight_decay = trial.suggest_float("weight_decay", 1e-6, 5e-4, log=True)
         dropout = trial.suggest_float("dropout", 0.0, 0.5)
-        backbone = trial.suggest_categorical("backbone", ["resnet18", "resnet34", "efficientnet_b0"])
+        backbone = trial.suggest_categorical("backbone", ["resnet18", "resnet34", "efficientnet_b0", "simple_cnn"])
         patience = trial.suggest_int("patience", 3, 6)
 
         train_loader, val_loader, test_loader = build_random_split_loaders(

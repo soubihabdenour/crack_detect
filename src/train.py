@@ -1,6 +1,14 @@
+"""Training script for the crack/no-crack classifier.
+
+Example:
+  python -m src.train /path/to/dataset \
+    --output-dir runs/exp \
+    --backbone resnet18 \
+    --epochs 30
+"""
+
 import argparse
 import json
-import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, Tuple
@@ -18,6 +26,7 @@ from .model import create_model
 
 @dataclass
 class TrainConfig:
+    """Configuration for a single training run."""
     data_root: str
     output_dir: str = "runs/default"
     backbone: str = "resnet18"
@@ -35,6 +44,8 @@ class TrainConfig:
 
 
 class AverageMeter:
+    """Utility to track average values over time (e.g., loss/accuracy)."""
+
     def __init__(self):
         self.reset()
 
@@ -52,11 +63,13 @@ class AverageMeter:
 
 
 def accuracy_from_logits(logits: torch.Tensor, targets: torch.Tensor) -> float:
+    """Compute accuracy from raw logits and binary targets in {0,1}."""
     preds = (torch.sigmoid(logits) >= 0.5).long()
-    return (preds == targets).float().mean().item()
+    return (preds == targets.long()).float().mean().item()
 
 
 def validate(model: nn.Module, loader: DataLoader, criterion: nn.Module, device: torch.device) -> Tuple[float, float]:
+    """Evaluate model on a validation loader; returns (loss, accuracy)."""
     model.eval()
     loss_meter = AverageMeter()
     acc_meter = AverageMeter()
@@ -76,6 +89,7 @@ def validate(model: nn.Module, loader: DataLoader, criterion: nn.Module, device:
 def train_one_epoch(
     model: nn.Module, loader: DataLoader, criterion: nn.Module, optimizer: torch.optim.Optimizer, device: torch.device
 ) -> Tuple[float, float]:
+    """Train for a single epoch; returns (loss, accuracy)."""
     model.train()
     loss_meter = AverageMeter()
     acc_meter = AverageMeter()
@@ -97,6 +111,7 @@ def train_one_epoch(
 
 
 def save_state(model: nn.Module, optimizer: torch.optim.Optimizer, scheduler, output_dir: Path, epoch: int):
+    """Persist checkpoint with epoch, model, optimizer, and scheduler state."""
     state = {
         "epoch": epoch,
         "model_state": model.state_dict(),
@@ -111,7 +126,7 @@ def main():
     parser = argparse.ArgumentParser(description="Train crack vs. no-crack classifier")
     parser.add_argument("data_root", help="Path to dataset root containing train/ and val/")
     parser.add_argument("--output-dir", default="runs/default", help="Directory to store checkpoints and logs")
-    parser.add_argument("--backbone", default="resnet18", choices=["resnet18", "resnet34", "efficientnet_b0"])
+    parser.add_argument("--backbone", default="resnet18", choices=["resnet18", "resnet34", "efficientnet_b0", "simple_cnn"])
     parser.add_argument("--no-pretrained", action="store_true", help="Disable ImageNet pretraining")
     parser.add_argument("--dropout", type=float, default=0.2)
     parser.add_argument("--batch-size", type=int, default=32)
@@ -146,7 +161,7 @@ def main():
         batch_size=config.batch_size,
         num_workers=config.num_workers,
         image_size=config.image_size,
-        augment=True,
+        augment="ultra",
         balance=config.balance,
     )
 
@@ -154,6 +169,7 @@ def main():
     model = model.to(device)
 
     criterion = nn.BCEWithLogitsLoss()
+    # Default optimizer: AdamW with cosine schedule
     optimizer = AdamW(model.parameters(), lr=config.lr, weight_decay=config.weight_decay)
     scheduler = CosineAnnealingLR(optimizer, T_max=config.epochs)
 
